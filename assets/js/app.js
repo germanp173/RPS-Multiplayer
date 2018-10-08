@@ -16,7 +16,7 @@ function verifyGameEntryPoint(){
     }
 }
 
-// Ensure player entered the game as designed.
+// Ensure player entered the game as designed through the main index page.
 verifyGameEntryPoint();
 
 // Initialize Firebase
@@ -45,29 +45,87 @@ var firebaseDB = {
         return playerKey;
     },
 
-    getOpenSlot: async function(){
-        var constrolsQuery = await this.DB.ref(this.slotsObj).once('value');
+    deletePlayer: function(id){
+        this.DB.ref(this.playersObj).child(id).remove();
+    },
 
-        var playerSlots = constrolsQuery.val();
+    getOpenSlot: async function(){
+        // Get game slots (this game has only two open slots at a time).
+        var slotsQuery = await this.DB.ref(this.slotsObj).once('value');
+
+        // Get object of each player slot.
+        var playerSlots = slotsQuery.val();
+        
+        // Iterate through each slot until the first open slot is found.
         for (var slot in playerSlots){
-            if (playerSlots[slot] === false){
+            if (playerSlots[slot].open === true){
+                // Claim the spot for the current player.
                 this.takeOpenSlot(slot);
                 return slot;
             }
         }
+
+        // If no game slots are available, return null.
         return null;
     },
 
     takeOpenSlot: function(slotId){
-        this.DB.ref(this.slotsObj).child(slotId).set(true);
+        this.DB.ref(this.slotsObj).child(slotId).update({
+            open: false,
+            playerId: playerId
+            });
     },
 
     releaseSlot: function(slotId){
-        this.DB.ref(this.slotsObj).child(slotId).set(false);
+        this.DB.ref(this.slotsObj).child(slotId).update({
+            open: true,
+            playerId: ""
+        });
     },
 
-    deletePlayer: function(id){
-        this.DB.ref(this.playersObj).child(id).remove();
+    turnOnSlotMonitors: function(){
+        // Get the players root object needed to query players.
+        var playersRootObj = this.playersObj;
+
+        // Set the database on change event listeners for each game slot.
+        this.DB.ref(this.slotsObj).child('player-1').on('value', function(snap){
+            setPlayerControls(playersRootObj, snap.key, snap.val());
+        });
+
+        this.DB.ref(this.slotsObj).child('player-2').on('value', function(snap){
+            setPlayerControls(playersRootObj, snap.key, snap.val());
+        });
+
+        // Upon any change of a game slot, the UI will be updated appropiately.
+        async function setPlayerControls(playersRootObj, playerSlot, slotObj){
+
+            // If slot has been taken, update the UI for that player.
+            if (!slotObj.open){
+
+                // Get player.
+                var playerQuery = await firebase.database().ref(playersRootObj).child(slotObj.playerId).once('value');
+                var player = playerQuery.val();
+                
+                // Set player controls using their unique given ID.
+                var playerControlHtml = `<div class='row'><span class='badge-pill badge-primary' player-id='${slotObj.playerId}'>${player}</span></div> 
+                <br><div class='row text-center'><div class='col-sm-6'><span class='badge badge-success' id='wins' player-id='${slotObj.playerId}'>0</span>
+                </div><div class='col-sm-6'><span class='badge badge-danger' id='losses' player-id='${slotObj.playerId}'>0</span></div></div> 
+                <br><div class='row hand-div'><img class='hand fluid' player-id='${slotObj.playerId}' src='../images/hand-rock.png' alt='Paper Rock'></div>
+                <div class='row hand-div'><img class='hand fluid' player-id='${slotObj.playerId}' src='../images/hand-paper.png' alt='Paper Paper'></div> 
+                <div class='row hand-div'><img class='hand fluid' player-id='${slotObj.playerId}' src='../images/hand-scissors.png' alt='Paper Scissors'></div>`
+                
+                // Set the UI.
+                $(`#${playerSlot}`).html(playerControlHtml);
+            
+                // Create button event listeners that enable the game to work.
+                $(`.hand[player-id=${playerId}]`).on('click', function(){
+                    // TODO: Game Logic and styling.
+                    console.log("This is working!");
+                });
+            } else{
+                $(`#${playerSlot}`).html("<h5>Waiting for Player to Join!</h5>");
+            }
+        }
     }
 }
 
@@ -81,34 +139,23 @@ $(window).on('beforeunload', function(){
     // Free up the player slot to allow other players to join.
     if (playerSlotId !== null){
         firebaseDB.releaseSlot(playerSlotId);
-        $(`#${playerSlotId}`).html("<h5>Waiting for Player to Join!</h5>");
         playerSlotId = null;
     }
 })
 
-async function setPlayerControls(name){
+async function startGame(name){
+    // Turn on game slot monitors.
+    firebaseDB.turnOnSlotMonitors();
 
+    // Set playerId and SlotId.
     playerId = await firebaseDB.createPlayer(name);
     playerSlotId = await firebaseDB.getOpenSlot();
 
+    // TODO: Spectator logic!
     if (playerSlotId === null){
-        console.log("Game full: Spectator");
-        return;
+        console.log("Game Full!");
     }
-
-    var playerControlHtml = `<div class='row'><span class='badge-pill badge-primary' player-id='${playerId}'>${playerName}</span></div> 
-                        <br><div class='row text-center'><div class='col-sm-6'><span class='badge badge-success' id='wins' player-id='${playerId}'>0</span>
-                        </div><div class='col-sm-6'><span class='badge badge-danger' id='losses' player-id='${playerId}'>0</span></div></div> 
-                        <br><div class='row hand-div'><img class='hand fluid' player-id='${playerId}' src='../images/hand-rock.png' alt='Paper Rock'></div>
-                        <div class='row hand-div'><img class='hand fluid' player-id='${playerId}' src='../images/hand-paper.png' alt='Paper Paper'></div> 
-                        <div class='row hand-div'><img class='hand fluid' player-id='${playerId}' src='../images/hand-scissors.png' alt='Paper Scissors'></div>`
-    
-    $(`#${playerSlotId}`).html(playerControlHtml);
-
-    $(`.hand[player-id=${playerId}]`).on('click', function(){
-        console.log("Fuck YES");
-    })
 }
 
-setPlayerControls(playerName);
-
+// Start the game!
+startGame(playerName);
