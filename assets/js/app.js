@@ -2,6 +2,7 @@
 var playerName = null;
 var playerId = null;
 var playerSlotId = null;
+var choiceLocked = false;
 
 function verifyGameEntryPoint(){
     // Get player name from local storage.
@@ -35,10 +36,15 @@ var firebaseDB = {
     DB: firebase.database(),
     playersObj: "players",
     slotsObj: "slots",
+    gameObj: "game",
 
-    createPlayer: async function(name){
+    createPlayer: async function(playerName){
         var playerKey = null;
-        await this.DB.ref(this.playersObj).push(name)
+        await this.DB.ref(this.playersObj).push({
+                        name: playerName,
+                        wins: 0,
+                        losses: 0
+                    })
                     .then(snap => {
                         playerKey = snap.key;
                     });
@@ -84,46 +90,87 @@ var firebaseDB = {
     },
 
     turnOnSlotMonitors: function(){
-        // Get the players root object needed to query players.
-        var playersRootObj = this.playersObj;
+        // Set player slots.
+        var player1 = 'player-1';
+        var player2 = 'player-2';
 
-        // Set the database on change event listeners for each game slot.
-        this.DB.ref(this.slotsObj).child('player-1').on('value', function(snap){
-            setPlayerControls(playersRootObj, snap.key, snap.val());
+        // Set the database on change event listeners for each player.
+        this.DB.ref(this.slotsObj).child(player1).on('value', function(snap){
+            setPlayerControls(snap.key, snap.val());
         });
 
-        this.DB.ref(this.slotsObj).child('player-2').on('value', function(snap){
-            setPlayerControls(playersRootObj, snap.key, snap.val());
+        this.DB.ref(this.slotsObj).child(player2).on('value', function(snap){
+            setPlayerControls(snap.key, snap.val());
+        });
+
+        this.DB.ref(this.gameObj).child(player1).on('value', function(snap){
+            //
+            if (snap.ref.key === playerSlotId){
+                var status = snap.val();
+                choiceLocked = status.locked;
+            }
+        });
+
+        this.DB.ref(this.gameObj).child(player2).on('value', function(snap){
+            // 
+            if (snap.ref.key === playerSlotId){
+                var status = snap.val();
+                choiceLocked = status.locked;
+            }
         });
 
         // Upon any change of a game slot, the UI will be updated appropiately.
-        async function setPlayerControls(playersRootObj, playerSlot, slotObj){
+        function setPlayerControls(playerSlot, slotObj){
 
             // If slot has been taken, update the UI for that player.
             if (!slotObj.open){
 
                 // Get player.
-                var playerQuery = await firebase.database().ref(playersRootObj).child(slotObj.playerId).once('value');
-                var player = playerQuery.val();
+                firebase.database().ref(firebaseDB.playersObj).child(slotObj.playerId).once('value').then(function(snap){
+                    
+                    var player = snap.val();
+                    
+                    // Set player controls using their unique given ID.
+                    var playerControlHtml = `<div class='row'><span class='badge-pill badge-primary' player-id='${slotObj.playerId}'>${player.name}</span></div> 
+                    <br><div class='row text-center'><div class='col-sm-6'><span class='badge badge-success' id='wins' player-id='${slotObj.playerId}'>0</span>
+                    </div><div class='col-sm-6'><span class='badge badge-danger' id='losses' player-id='${slotObj.playerId}'>0</span></div></div> 
+                    <br><div class='row hand-div'><img class='hand fluid' data='rock' player-id='${slotObj.playerId}' src='../images/hand-rock.png' alt='Paper Rock'></div>
+                    <div class='row hand-div'><img class='hand fluid' data='paper' player-id='${slotObj.playerId}' src='../images/hand-paper.png' alt='Paper Paper'></div> 
+                    <div class='row hand-div'><img class='hand fluid' data='scissors' player-id='${slotObj.playerId}' src='../images/hand-scissors.png' alt='Paper Scissors'></div>`
+                    
+                    // Set the UI.
+                    $(`#${playerSlot}`).html(playerControlHtml);
                 
-                // Set player controls using their unique given ID.
-                var playerControlHtml = `<div class='row'><span class='badge-pill badge-primary' player-id='${slotObj.playerId}'>${player}</span></div> 
-                <br><div class='row text-center'><div class='col-sm-6'><span class='badge badge-success' id='wins' player-id='${slotObj.playerId}'>0</span>
-                </div><div class='col-sm-6'><span class='badge badge-danger' id='losses' player-id='${slotObj.playerId}'>0</span></div></div> 
-                <br><div class='row hand-div'><img class='hand fluid' player-id='${slotObj.playerId}' src='../images/hand-rock.png' alt='Paper Rock'></div>
-                <div class='row hand-div'><img class='hand fluid' player-id='${slotObj.playerId}' src='../images/hand-paper.png' alt='Paper Paper'></div> 
-                <div class='row hand-div'><img class='hand fluid' player-id='${slotObj.playerId}' src='../images/hand-scissors.png' alt='Paper Scissors'></div>`
-                
-                // Set the UI.
-                $(`#${playerSlot}`).html(playerControlHtml);
-            
-                // Create button event listeners that enable the game to work.
-                $(`.hand[player-id=${playerId}]`).on('click', function(){
-                    // TODO: Game Logic and styling.
-                    console.log("This is working!");
+                    // Create button event listeners that enable the game to work.
+                    $(`.hand[player-id=${playerId}]`).on('click', function(){
+                        //
+                        if (!choiceLocked){
+                            $(this).css("transform", "scale(1)");
+                            $(this).css("background", "grey");
+                            
+                            //
+                            var playerChoice = $(this).attr('data');
+                            firebase.database().ref(firebaseDB.gameObj).child(playerSlot).once('value').then(function(snapshot){
+                                //
+                                snapshot.ref.update({
+                                    choice: playerChoice,
+                                    locked: true
+                                });
+                            });
+                        }
+                    });
+    
+                    $(`.hand[player-id=${playerId}]`).hover(function(){
+                        if (!choiceLocked){
+                            $(this).css("transform", "scale(1.2)");
+                        }
+                    }, function(){
+                        $(this).css("transform", "scale(1)");
+                    });
                 });
+
             } else{
-                $(`#${playerSlot}`).html("<h5>Waiting for Player to Join!</h5>");
+                $(`#${playerSlot}`).html("<h5>Waiting for player to join!</h5>");
             }
         }
     }
