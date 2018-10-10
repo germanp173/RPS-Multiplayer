@@ -1,6 +1,13 @@
+body{
+    background-image: url(../images/background.png);
+    font-family: 'Mali', cursive;
+}
+
 .jumbotron {
     padding-top: 20px;
     padding-bottom: 20px;
+    background-color: rgba(255, 255, 255, .6);
+
 }
 
 .badge-pill {
